@@ -1,0 +1,377 @@
+Include vs Joins in Rails 5
+
+Create a new Rails 5 project.
+
+```
+rails new commenter
+```
+
+Create the user model.
+
+```
+rails g model user name admin:boolean
+```
+
+Create the comment model.
+
+```
+rails g model comment content:text user:references 
+```
+
+Declare the association in the user model.
+
+```ruby
+class User < ApplicationRecord
+  has_many :comments
+end
+```
+
+Generate the users controller.
+
+```
+rails g controller users index new show edit
+```
+
+In users/edit.html.erb:
+
+```rhtml
+<%= render 'form' %>
+<p>
+  <%= link_to "Show", @user %> |
+  <%= link_to "View All", users_path %>
+</p>
+```
+
+In users/index.html.erb:
+
+```rhtml
+<% for user in @users %>
+<p class="user">
+  <strong><%= link_to h(user.name), user %></strong>
+  <%= "(admin)" if user.admin? %><br />
+  
+  <%= pluralize user.comments.size, "comment" %><br />
+  
+  <%= link_to "Edit", edit_user_path(user) %> |
+  <%= link_to "Destroy", user, :confirm => 'Are you sure?', :method => :delete %>
+</p>
+<% end %>
+<p><%= link_to "New User", new_user_path %></p>
+```
+
+In users/new.html.erb:
+
+```rhtml
+<%= render 'form' %>
+<p><%= link_to "Back to List", users_path %></p>
+```
+
+In users/show.html.erb:
+
+```rhtml
+<p>
+  <strong>Name:</strong>
+  <%=h @user.name %>
+</p>
+<p>
+  <strong>Admin:</strong>
+  <%=h @user.admin %>
+</p>
+<p>
+  <%= link_to "Edit", edit_user_path(@user) %> |
+  <%= link_to "Destroy", @user, :confirm => 'Are you sure?', :method => :delete %> |
+  <%= link_to "View All", users_path %>
+</p>
+```
+
+The layout file:
+
+```rhtml
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Commenter</title>
+    <%= csrf_meta_tags %>
+    <%= stylesheet_link_tag    'application', media: 'all', 'data-turbolinks-track': 'reload' %>
+    <%= javascript_include_tag 'application', 'data-turbolinks-track': 'reload' %>
+  </head>
+  <body>
+    <div id="container">
+      <%- flash.each do |name, msg| -%>
+        <%= content_tag :div, msg, :id => "flash_#{name}" %>
+      <%- end -%>
+      <%= yield %>
+    </div>
+  </body>
+</html>
+```
+
+The user form partial:
+
+```rhtml
+<%= form_for @user do |f| %>
+  <p>
+    <%= f.label :name %><br />
+    <%= f.text_field :name %>
+  </p>
+  <p>
+    <%= f.check_box :admin %> <%= f.label :admin %>
+  </p>
+  <p>
+  <p><%= f.submit "Submit" %></p>
+<% end %>
+```
+
+The routes.rb:
+
+```ruby
+Rails.application.routes.draw do
+  resources :users
+  resources :comments
+  
+  root 'comments#index'
+end
+```
+
+Migrate the database:
+
+```
+rails db:migrate
+```
+
+Create the comments controller:
+
+```
+rails g controller comments index new show edit
+```
+
+In comments/index.html.erb:
+
+```rhtml
+<%= render @comments %>
+<p><%= link_to "New Comment", new_comment_path %></p>
+```
+
+In comments/new.html.erb:
+
+```rhtml
+<%= render 'form' %>
+<p><%= link_to "Back to List", comments_path %></p>
+```
+
+In comments/edit.html.erb:
+
+```rhtml
+<%= render 'form' %>
+<p>
+  <%= link_to "Show", @comment %> |
+  <%= link_to "View All", comments_path %>
+</p>
+```
+
+In comment form partial:
+
+```rhtml
+<%= form_for @comment do |f| %>
+  <p>
+    <%= f.label :content %><br />
+    <%= f.text_area :content %>
+  </p>
+  <p>
+    <%= f.label :user_id %><br />
+    <%= f.collection_select :user_id, User.all, :id, :name %>
+  </p>
+  <p><%= f.submit "Submit" %></p>
+<% end %>
+```
+
+In comment partial:
+
+```rhtml
+<div class="comment">
+  <%= simple_format comment.content %>
+  <p class="actions">
+    <%= link_to "edit", edit_comment_path(comment) %> |
+    <%= link_to "destroy", comment, :method => :delete, :confirm => "Are you sure?" %>
+  </p>
+</div>
+```
+
+Comments controller:
+
+```ruby
+class CommentsController < ApplicationController
+  def index
+    @comments = Comment.joins(:user).where('users.admin' => true).order('comments.created_at desc')
+  end
+  
+  def show
+    @comment = Comment.find(params[:id])
+  end
+  
+  def new
+    @comment = Comment.new
+  end
+  
+  def create
+    @comment = Comment.new(comment_params)
+    if @comment.save
+      flash[:notice] = "Successfully created comment."
+      
+      redirect_to @comment
+    else
+      render :new
+    end
+  end
+  
+  def edit
+    @comment = Comment.find(params[:id])
+  end
+  
+  def update
+    @comment = Comment.find(params[:id])
+    if @comment.update_attributes(comment_params)
+      flash[:notice] = "Successfully updated comment."
+    
+      redirect_to @comment
+    else
+      render :edit
+    end
+  end
+  
+  def destroy
+    @comment = Comment.find(params[:id])
+    @comment.destroy
+    flash[:notice] = "Successfully destroyed comment."
+    
+    redirect_to comments_url
+  end
+  
+  private
+  
+  def comment_params
+    params.require(:comment).permit(:content, :user_id)  
+  end
+end
+```
+
+The users controller:
+
+```ruby
+class UsersController < ApplicationController
+  def index
+    @users = User.joins(:comments).select('users.*, count(comments.id) as comments_count').group('users.id')
+  end
+  
+  def show
+    @user = User.find(params[:id])
+  end
+  
+  def new
+    @user = User.new
+  end
+  
+  def create
+    @user = User.new(user_params)
+    if @user.save
+      flash[:notice] = "Successfully created user."
+    
+      redirect_to @user
+    else
+      render :action => 'new'
+    end
+  end
+  
+  def edit
+    @user = User.find(params[:id])
+  end
+  
+  def update
+    @user = User.find(params[:id])
+    if @user.update_attributes(user_params)
+      flash[:notice] = "Successfully updated user."
+    
+      redirect_to @user
+    else
+      render :action => 'edit'
+    end
+  end
+  
+  def destroy
+    @user = User.find(params[:id])
+    @user.destroy
+    flash[:notice] = "Successfully destroyed user."
+    
+    redirect_to users_url
+  end
+
+  private
+  
+  def user_params
+    params.require(:user).permit(:name, :admin)
+  end
+end
+```
+
+Create an admin and a non admin user. Create some comments for both users.  Let's experiment in the Rails console. 
+
+## Joins
+
+We can retrieve all comments in descending order:
+
+```
+>> wise_comments = Comment.order('comments.created_at desc')
+  Comment Load (0.4ms)  SELECT "comments".* FROM "comments" ORDER BY comments.created_at desc
+=> #<ActiveRecord::Relation [#<Comment id: 2, content: "I am a super user.", user_id: 2, created_at: "2016-08-13 20:06:41", updated_at: "2016-08-13 20:06:41">, #<Comment id: 1, content: "This is great!", user_id: 1, created_at: "2016-08-13 20:06:06", updated_at: "2016-08-13 20:06:06">]>
+```
+
+This returns an ActiveRecord::Relation object. We can retrieve the rows by calling the to_a:
+
+```
+>> wise_comments.to_a
+=> [#<Comment id: 2, content: "I am a super user.", user_id: 2, created_at: "2016-08-13 20:06:41", updated_at: "2016-08-13 20:06:41">, #<Comment id: 1, content: "This is great!", user_id: 1, created_at: "2016-08-13 20:06:06", updated_at: "2016-08-13 20:06:06">]
+```
+
+We can retrieve all comments made by an admin user in descending order:
+
+```ruby
+>> Comment.joins(:user).where('users.admin' => true).order('comments.created_at desc')
+  Comment Load (0.3ms)  SELECT "comments".* FROM "comments" INNER JOIN "users" ON "users"."id" = "comments"."user_id" WHERE "users"."admin" = ? ORDER BY comments.created_at desc  [["admin", true]]
+=> #<ActiveRecord::Relation [#<Comment id: 2, content: "I am a super user.", user_id: 2, created_at: "2016-08-13 20:06:41", updated_at: "2016-08-13 20:06:41">]>
+```
+
+The joins fired one query that is an inner join of comments and users tables. We can access the user associated with the comment:
+
+```ruby
+>> c.first.user
+  User Load (0.2ms)  SELECT  "users".* FROM "users" WHERE "users"."id" = ? LIMIT ?  [["id", 2], ["LIMIT", 1]]
+=> #<User id: 2, name: "Daffy Duck", admin: true, created_at: "2016-08-13 20:02:34", updated_at: "2016-08-13 20:02:34">
+```
+
+You can see the user was retrieved from the database, there is an additional hit to the database to access the user.
+
+## Includes
+
+Use of includes generates a complex SQL query:
+
+```ruby
+>> d = Comment.includes(:user).where('users.admin' => true)
+  SQL (0.3ms)  SELECT "comments"."id" AS t0_r0, "comments"."content" AS t0_r1, "comments"."user_id" AS t0_r2, "comments"."created_at" AS t0_r3, "comments"."updated_at" AS t0_r4, "users"."id" AS t1_r0, "users"."name" AS t1_r1, "users"."admin" AS t1_r2, "users"."created_at" AS t1_r3, "users"."updated_at" AS t1_r4 FROM "comments" LEFT OUTER JOIN "users" ON "users"."id" = "comments"."user_id" WHERE "users"."admin" = ?  [["admin", true]]
+=> #<ActiveRecord::Relation [#<Comment id: 2, content: "I am a super user.", user_id: 2, created_at: "2016-08-13 20:06:41", updated_at: "2016-08-13 20:06:41">]>
+>> d.to_a
+=> [#<Comment id: 2, content: "I am a super user.", user_id: 2, created_at: "2016-08-13 20:06:41", updated_at: "2016-08-13 20:06:41">]
+```
+
+When we access the corresponding user of the comment:
+
+```ruby
+>> d.first.user
+=> #<User id: 2, name: "Daffy Duck", admin: true, created_at: "2016-08-13 20:02:34", updated_at: "2016-08-13 20:02:34">
+```
+
+There is no hit to the database.
+
+
+## Summary
+
+The includes eager loads the associations to prevent N+1 queries problem when you know that you need to access the data in the associated model. The joins is used when you don't need to access the data in the associated model. So, in this case, you don't retrieve them when you get the comments.

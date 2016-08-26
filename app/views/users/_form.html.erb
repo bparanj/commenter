@@ -1,0 +1,11 @@
+<%= form_for @user do |f| %>
+  <p>
+    <%= f.label :name %><br />
+    <%= f.text_field :name %>
+  </p>
+  <p>
+    <%= f.check_box :admin %> <%= f.label :admin %>
+  </p>
+  <p>
+  <p><%= f.submit "Submit" %></p>
+<% end %>
